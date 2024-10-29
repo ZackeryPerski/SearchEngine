@@ -76,7 +76,6 @@ function findURLsInHTML(htmlData) {
 }
 
 //Function to build the keyWordList.
-//TODO: Refactor this function for readability and maintainability.
 function findKeyWordsInHTML(htmlData) {
   if (typeof htmlData !== "string") {
     throw new Error("HTML data should be in string format"); //sanity check
@@ -98,113 +97,33 @@ function findKeyWordsInHTML(htmlData) {
       return tags;
     }
   }
-  //If we haven't found the keywords in the meta tags, we'll look next at the title tags.
-  //Starting from here, we assume we might have pre-existing tags from the meta tags.
-  const titleTags = $("title").text();
-  if (titleTags) {
-    let tempTags = titleTags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
+
+  //We'll be using early out logic to limit the number of tags we parse.
+  let targetTags = ["title", "h1", "h2", "h3", "h4", "h5", "h6", "body"];
+  targetTags.forEach((tag) => {
+    let tempTags = getKeywordsFromTargetTag(tag, htmlData);
     tags = tags.concat(tempTags);
     if (tags.length > keyWordLimit) {
       tags = tags.slice(0, keyWordLimit);
       return tags;
     }
-  }
-  //If we haven't found the keywords in the title tags, we'll look next at the h1 tags.
-  const h1Tags = $("h1").text();
-  if (h1Tags) {
-    let tempTags = h1Tags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    tags = tags.concat(tempTags);
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
-  }
-  //If we haven't found the keywords in the h1 tags, we'll look next at the h2 tags.
-  const h2Tags = $("h2").text();
-  if (h2Tags) {
-    let tempTags = h2Tags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    tags = tags.concat(tempTags);
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
-  }
-  //If we haven't found the keywords in the h2 tags, we'll look next at the h3 tags.
-  const h3Tags = $("h3").text();
-  if (h3Tags) {
-    let tempTags = h3Tags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    tags = tags.concat(tempTags);
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
-  }
-  //If we haven't found the keywords in the h3 tags, we'll look next at the h4 tags.
-  const h4Tags = $("h4").text();
-  if (h4Tags) {
-    let tempTags = h4Tags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    tags = tags.concat(tempTags);
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
-  }
-  //If we haven't found the keywords in the h4 tags, we'll look next at the h5 tags.
-  const h5Tags = $("h5").text();
-  if (h5Tags) {
-    let tempTags = h5Tags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    tags = tags.concat(tempTags);
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
-  }
-  //If we haven't found the keywords in the h5 tags, we'll look next at the h6 tags.
-  const h6Tags = $("h6").text();
-  if (h6Tags) {
-    let tempTags = h6Tags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    tags = tags.concat(tempTags);
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
-  }
-  //If we STILL haven't found the keywords, we'll be looking at the body tags.
-  const bodyTags = $("body").text();
-  if (bodyTags) {
-    let tempTags = bodyTags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    tags = tags.concat(tempTags);
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
-  }
+  });
 
   return tags; //If we get here, we have less than k keywords to return. will need to do some additional processing
+}
+
+//Helper function to get keywords from a specific tag
+function getKeywordsFromTargetTag(tag, htmlData) {
+  const $ = cheerio.load(htmlData);
+  const targetTags = $(tag).text();
+  if (targetTags) {
+    let tempTags = targetTags
+      .split(" ")
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length >= 3);
+    return tempTags;
+  }
+  return [];
 }
 
 //Function to build the rankings for the keywords

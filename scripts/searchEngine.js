@@ -55,6 +55,8 @@ let position = 1; // Position to start fetching URLs from the database via the b
     await insertIntoRobotURL(STARTING_URLS[i]);
   }
 
+  // Create the bots
+
   // Create the server
   http
     .createServer(function (req, res) {
