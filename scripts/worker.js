@@ -1,34 +1,30 @@
 const { parentPort, workerData } = require("worker_threads");
 const axios = require("axios");
-const cheerio = require("cheerio"); //library that makes it easier to parse html data
-//regex is fine occassionally, but cheerio is better for parsing html data and handling complex html structures.
+const cheerio = require("cheerio"); // library that makes it easier to parse HTML data
 
-const { type } = require("os");
+let currentURL = workerData.url; // Assume we start with the first URL in the list.
+let keyWordLimit = workerData.keyWordLimit; // This is k from the assignment.
+let descriptionLength = workerData.descriptionLength; // Maximum length of the description to store in the database.
+let halt = workerData.halt; // A flag to stop the worker from processing more URLs, set by the parent thread.
 
-let currentURL = workerData.url;
-let keyWordLimit = workerData.keyWordLimit; //This is k from the assignment, n is the number of URLs to eventually parse. Remember this for later.
-let urlList = [];
-let keyWordList = [];
-let rankings = [];
-
-//Threading Logic
-//This function is called to acquire the next URL from the parent.
-function requestNextURLFromParent(url = "") {
-  parentPort.postMessage({ request: "getNext", url });
+// Threading Logic
+function getNextURLFromParent() {
+  parentPort.postMessage({ request: "getNextURL" });
 }
 
-//This function is called after parsing a list of URLs to store the data in the database.
-function storeParsedURLData(data = []) {
-  parentPort.postMessage({ request: "storeURLs", data });
+function storeRobotURLs(urls = []) {
+  parentPort.postMessage({ request: "storeRobotURLs", urls });
 }
 
-//This function is called after parsing tags from the html data.
-function storeParsedTagsData(data = []) {
-  parentPort.postMessage({ request: "storeTags", data });
+function storeParsedTagsData(tags = [], ranks = [], url = "") {
+  parentPort.postMessage({ request: "storeTags", tags, ranks, url });
 }
 
-//Axios and web request logic
-//Function to retrieve data from the URL
+function storeDescriptionData(description = "", url = "") {
+  parentPort.postMessage({ request: "storeDescription", description, url });
+}
+
+// Axios and web request logic
 async function retrievePageData(url) {
   try {
     const response = await axios.get(url, { timeout: 5000 });
@@ -39,138 +35,138 @@ async function retrievePageData(url) {
   }
 }
 
-//HTML Processing Logic
-//Function to clean up and remove URL fragments
+// HTML Processing Logic
 function removeURLFragment(url) {
   return url.split("#")[0];
 }
 
-//Function to transform relative URLs to absolute URLs
 function transformRelativeURL(url) {
-  if (url.startsWith("http")) {
-    return url;
-  } //if it starts with http, it is already an absolute URL
-
+  if (url.startsWith("http")) return url;
   return new URL(url, currentURL).href;
 }
 
-//Function to convert and clean up the URLs
 function cleanURLs(urls) {
   return urls.map((url) => transformRelativeURL(removeURLFragment(url)));
 }
 
-//Function finds all URLs in the html data
-function findURLsInHTML(htmlData) {
-  if (typeof htmlData !== "string") {
-    throw new Error("HTML data should be in string format"); //sanity check
-  }
-
-  let urlRegex = /href=["'](https?:\/\/[^"']+)["']/g;
+function findURLsInHTML($) {
   let urls = [];
-  let match = urlRegex.exec(htmlData); //Truthy if a match is found, falsy if no match is found.
-  while (match) {
-    urls.push(match[1]);
-    match = urlRegex.exec(htmlData);
-  }
-  return cleanURLs(urls); //Return the list of URLs found in the html data. These are the URLs to be parsed and cleaned.
+  $("a[href]").each((_, element) => {
+    let url = $(element).attr("href");
+    if (url) urls.push(transformRelativeURL(removeURLFragment(url)));
+  });
+  return urls;
 }
 
-//Function to build the keyWordList.
-function findKeyWordsInHTML(htmlData) {
-  if (typeof htmlData !== "string") {
-    throw new Error("HTML data should be in string format"); //sanity check
-  }
-
+function findKeyWordsInHTML($) {
   let tags = [];
-
-  //Use cheerio to process the html data
-  //We'll be using early out logic to limit the number of tags we parse.
-  const $ = cheerio.load(htmlData);
   const metaTags = $('meta[name="keywords"]').attr("content");
   if (metaTags) {
     tags = metaTags
       .split(",")
       .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3); //Filter here removes tags that are 2 characters or less.
-    if (tags.length > keyWordLimit) {
-      tags = tags.slice(0, keyWordLimit);
-      return tags;
-    }
+      .filter((tag) => tag.length >= 3);
+    if (tags.length > keyWordLimit) return tags.slice(0, keyWordLimit);
   }
 
-  //We'll be using early out logic to limit the number of tags we parse.
   let targetTags = ["title", "h1", "h2", "h3", "h4", "h5", "h6", "body"];
   targetTags.forEach((tag) => {
-    let tempTags = getKeywordsFromTargetTag(tag, htmlData);
+    let tempTags = getKeywordsFromTargetTag(tag, $);
     tags = tags.concat(tempTags);
     if (tags.length > keyWordLimit) {
       tags = tags.slice(0, keyWordLimit);
-      return tags;
+      return;
     }
   });
-
-  return tags; //If we get here, we have less than k keywords to return. will need to do some additional processing
+  return tags;
 }
 
-//Helper function to get keywords from a specific tag
-function getKeywordsFromTargetTag(tag, htmlData) {
-  const $ = cheerio.load(htmlData);
+function getKeywordsFromTargetTag(tag, $) {
   const targetTags = $(tag).text();
-  if (targetTags) {
-    let tempTags = targetTags
-      .split(" ")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length >= 3);
-    return tempTags;
-  }
-  return [];
+  return targetTags
+    ? targetTags
+        .split(" ")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length >= 3)
+    : [];
 }
 
-//Function to build the rankings for the keywords
-function findRankings(keyWordList, htmlData) {
-  //employing simple regex to find the number of times a keyword appears in the html data, ignoring case and tags of the same name.
+function findRankings(keyWordList, $) {
   let rankings = [];
-  let cleanedData = htmlData.replace(/<[^>]*>/g, " "); //Remove all html tags from the data.
+  let cleanedData = $.text().replace(/<[^>]*>/g, " ");
 
-  keyWordList.forEach((keyWord) => {
-    let regex = new RegExp(`\\b${keyWord}\\b`, "gi"); //this regex will match the keyword, ignoring case and only matching whole words.
+  keyWordList.forEach((keyWord, index) => {
+    let regex = new RegExp(`\\b${keyWord}\\b`, "gi");
     let matches = cleanedData.match(regex);
-    rankings.push(matches.length);
+    let count = matches ? matches.length : 0;
+    rankings.push(count + findRankingsInMetaTags(keyWord, $));
   });
   return rankings;
 }
 
-function main() {
-  //Retrieve the page data
-  retrievePageData(currentURL)
-    .then((htmlData) => {
-      //Check if the data is valid html. If it is, parse it, otherwise, do nothing and continue.
-      if (
-        htmlData !== null &&
-        htmlData !== undefined &&
-        typeof htmlData === "string"
-      ) {
-        //Parse the html data
-        urlList = findURLsInHTML(htmlData);
-        keyWordList = findKeyWordsInHTML(htmlData);
-        //It's possible that keyWordList is empty. If it is, we'll need to request the next URL from the parent.
-        //No point in storing an entry with no keywords.
-        //TODO: Add logic to handle this case.
-
-        //Build rankings for the keywords. There's at least one keyword in the list.
-        rankings = findRankings(keyWordList, htmlData);
-
-        //Store the data in the database
-        storeParsedURLData(urlList);
-        storeParsedTagsData(keyWordList);
-      }
-    })
-    .catch((error) => {
-      console.error("Error fetching data:", error.message);
-    });
+function findRankingsInMetaTags(keyword, $) {
+  let metaTags = $('meta[name="keywords"]').attr("content");
+  if (metaTags) {
+    let regex = new RegExp(`\\b${keyword}\\b`, "gi");
+    let matches = metaTags.match(regex);
+    return matches ? matches.length : 0;
+  }
+  return 0;
 }
 
-//TODO: listening for messages from the parent.
+function buildDescription($, length) {
+  let description = $('meta[name="description"]').attr("content");
+  if (description !== undefined && description.length > length) {
+    return description.slice(0, length);
+  }
 
-//This kickstarts the process
-requestDataFromParent(currentURL);
+  description = "";
+  let targetTags = ["title", "h1", "h2", "h3", "h4", "h5", "h6", "body"];
+  targetTags.forEach((tag) => {
+    let tempDescription = getDescriptionFromTargetTag(tag, $);
+    if (tempDescription.length > 0) {
+      description +=
+        description.length > 0 ? " " + tempDescription : tempDescription;
+      if (description.length > length) {
+        description = description.slice(0, length);
+        return;
+      }
+    }
+  });
+  return description;
+}
+
+function getDescriptionFromTargetTag(tag, $) {
+  return $(tag).text() || "";
+}
+
+async function main() {
+  if (!halt) {
+    let htmlData = await retrievePageData(currentURL);
+    if (htmlData && typeof htmlData === "string") {
+      const $ = cheerio.load(htmlData);
+      let urlList = findURLsInHTML($);
+      let keyWordList = findKeyWordsInHTML($);
+
+      if (keyWordList.length !== 0 && !halt) {
+        let rankings = findRankings(keyWordList, $);
+        let description = buildDescription($, descriptionLength);
+        storeParsedTagsData(keyWordList, rankings, currentURL);
+        storeDescriptionData(description, currentURL);
+        storeRobotURLs(urlList);
+      }
+    }
+    getNextURLFromParent();
+  }
+}
+
+parentPort.on("message", async (message) => {
+  if (message.request === "start") {
+    await main();
+  } else if (message.request === "newURL") {
+    currentURL = message.url;
+    await main();
+  } else if (message.request === "halt") {
+    halt = true;
+  }
+});
