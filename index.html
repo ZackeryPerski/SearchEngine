@@ -1,157 +1,181 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Search Engine</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f5f5f5;
-        }
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f5f5f5;
+      }
 
-        .form-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background-color: rgb(111, 192, 181);
-            padding: 0 1rem;
-        }
+      .form-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background-color: rgb(111, 192, 181);
+        padding: 0 1rem;
+      }
 
-        .search-logo {
-            height: auto;
-            width: 200px;
-            margin-bottom: 1.5rem;
-        }
+      .search-logo {
+        height: auto;
+        width: 200px;
+        margin-bottom: 1.5rem;
+      }
 
+      .search-form {
+        background: white;
+        border-radius: 10px;
+        padding: 2rem;
+        box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+        max-width: 600px;
+        width: 100%;
+      }
+
+      fieldset {
+        border: none;
+        margin-bottom: 1.5rem;
+      }
+
+      .search-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background-color: #ffffff;
+        border-radius: 50px;
+        padding: 0.75rem 1.5rem;
+        border: 2px solid #00796b;
+      }
+
+      .search-bar input[type="text"] {
+        border: none;
+        outline: none;
+        width: 100%;
+        font-size: 1rem;
+      }
+
+      .search-bar input[type="text"]::placeholder {
+        color: #777;
+      }
+
+      .search-bar img {
+        height: 20px;
+        width: 20px;
+      }
+
+      .search-options {
+        display: flex;
+        justify-content: center;
+        gap: 1.5rem;
+      }
+
+      .search-options input[type="radio"] {
+        margin-right: 0.5rem;
+      }
+
+      .search-options label {
+        font-size: 1rem;
+        color: #333;
+      }
+
+      .search-btn {
+        width: 100%;
+        padding: 0.75rem;
+        font-size: 1rem;
+        background-color: #00796b;
+        color: white;
+        border: none;
+        border-radius: 50px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      .search-btn:hover {
+        background-color: #004d40;
+      }
+
+      @media (max-width: 768px) {
         .search-form {
-            background: white;
-            border-radius: 10px;
-            padding: 2rem;
-            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
-            max-width: 600px;
-            width: 100%;
+          padding: 1.5rem;
         }
-
-        fieldset {
-            border: none;
-            margin-bottom: 1.5rem;
-        }
-
-        .search-bar {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background-color: #ffffff;
-            border-radius: 50px;
-            padding: 0.75rem 1.5rem;
-            border: 2px solid #00796b;
-        }
-
-        .search-bar input[type="text"] {
-            border: none;
-            outline: none;
-            width: 100%;
-            font-size: 1rem;
-        }
-
-        .search-bar input[type="text"]::placeholder {
-            color: #777;
-        }
-
-        .search-bar img {
-            height: 20px;
-            width: 20px;
-        }
-
-        .search-options {
-            display: flex;
-            justify-content: center;
-            gap: 1.5rem;
-        }
-
-        .search-options input[type="radio"] {
-            margin-right: 0.5rem;
-        }
-
-        .search-options label {
-            font-size: 1rem;
-            color: #333;
-        }
-
-        .search-btn {
-            width: 100%;
-            padding: 0.75rem;
-            font-size: 1rem;
-            background-color: #00796b;
-            color: white;
-            border: none;
-            border-radius: 50px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-        }
-
-        .search-btn:hover {
-            background-color: #004d40;
-        }
-
-        @media (max-width: 768px) {
-            .search-form {
-                padding: 1.5rem;
-            }
-        }
+      }
     </style>
-</head>
+  </head>
 
-<body>
+  <body>
     <div class="form-container">
-        <img class="search-logo" src="logo.png" alt="Logo">
-        <form class="search-form" id="search-form">
-            <fieldset>
-                <div class="search-bar">
-                    <img src="https://img.icons8.com/ios-filled/50/000000/search.png" alt="search icon">
-                    <input type="text" name="keywords" id="keywords" placeholder="Enter keywords..." required>
-                </div>
-            </fieldset>
+      <img class="search-logo" src="logo.png" alt="Logo" />
+      <form class="search-form" id="search-form">
+        <fieldset>
+          <div class="search-bar">
+            <img
+              src="https://img.icons8.com/ios-filled/50/000000/search.png"
+              alt="search icon"
+            />
+            <input
+              type="text"
+              name="keywords"
+              id="keywords"
+              placeholder="Enter keywords..."
+              required
+            />
+          </div>
+        </fieldset>
 
-            <fieldset class="search-options">
-                <div>
-                    <input type="radio" name="search_type" id="and" value="and" required>
-                    <label for="and">AND</label>
-                </div>
-                <div>
-                    <input type="radio" name="search_type" id="or" value="or" required>
-                    <label for="or">OR</label>
-                </div>
-            </fieldset>
+        <fieldset class="search-options">
+          <div>
+            <input
+              type="radio"
+              name="search_type"
+              id="and"
+              value="and"
+              required
+            />
+            <label for="and">AND</label>
+          </div>
+          <div>
+            <input
+              type="radio"
+              name="search_type"
+              id="or"
+              value="or"
+              required
+              checked
+            />
+            <label for="or">OR</label>
+          </div>
+        </fieldset>
 
-            <button type="submit" class="search-btn">Search</button>
-        </form>
+        <button type="submit" class="search-btn">Search</button>
+      </form>
     </div>
 
     <script>
-        document.getElementById('search-form').addEventListener('submit', function(event) {
-            event.preventDefault();
-    
-            // Get the values from the form fields
-            const keywords = document.getElementById('keywords').value;
-            const searchType = document.querySelector('input[name="search_type"]:checked').value;
-    
-            // Redirect to the results page with query parameters
-            window.location.href = `./results2.html?keywords=${encodeURIComponent(keywords)}&search_type=${encodeURIComponent(searchType)}`;  // CHANGE file path accordingly
+      document
+        .getElementById("search-form")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
 
+          // Get the values from the form fields
+          const keywords = document.getElementById("keywords").value;
+          const searchType = document.querySelector(
+            'input[name="search_type"]:checked'
+          ).value;
+
+          // Redirect to the results page with query parameters
+          window.location.href = `./results3.html?keywords=${encodeURIComponent(
+            keywords
+          )}&search_type=${encodeURIComponent(searchType)}`; // CHANGE file path accordingly
         });
     </script>
-    
-</body>
-
+  </body>
 </html>
