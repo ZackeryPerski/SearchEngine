@@ -61,15 +61,17 @@ function createBot(url) {
             } else {
               console.log("No more URLs available for the bot to process.");
               bot.postMessage({ request: "halt" });
+              buildingDatabase = false; //More complex logic needed later, but for a single bot, this is fine.
             }
           })
           .catch((err) => {
             console.error("Error retrieving next URL:", err.message);
-            bot.postMessage({ request: "halt" });
+            position++; //don't halt the bot, just move on to the next URL
           });
       } else {
         console.log("No more URLs available for the bot to process.");
         bot.postMessage({ request: "halt" });
+        buildingDatabase = false; //More complex logic needed later, but for a single bot, this is fine.
       }
     } else if (message.request === "storeRobotURLs") {
       // Handle storing of URLs found by the bot
