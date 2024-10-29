@@ -45,10 +45,6 @@ function transformRelativeURL(url) {
   return new URL(url, currentURL).href;
 }
 
-function cleanURLs(urls) {
-  return urls.map((url) => transformRelativeURL(removeURLFragment(url)));
-}
-
 function findURLsInHTML($) {
   let urls = [];
   $("a[href]").each((_, element) => {
@@ -81,6 +77,7 @@ function findKeyWordsInHTML($) {
   return tags;
 }
 
+//Helper function to get keywords from target tags
 function getKeywordsFromTargetTag(tag, $) {
   const targetTags = $(tag).text();
   return targetTags
@@ -104,6 +101,7 @@ function findRankings(keyWordList, $) {
   return rankings;
 }
 
+//Helper function to find rankings in meta tags
 function findRankingsInMetaTags(keyword, $) {
   let metaTags = $('meta[name="keywords"]').attr("content");
   if (metaTags) {
@@ -136,6 +134,7 @@ function buildDescription($, length) {
   return description;
 }
 
+//Helper function to get description from target tags
 function getDescriptionFromTargetTag(tag, $) {
   return $(tag).text() || "";
 }

@@ -10,6 +10,7 @@ Purpose: Create a Node.js server to handle incoming POST and GET requests for a 
 const http = require("http");
 const axios = require("axios");
 const url = require("url"); // Import the url module
+const { Worker } = require("worker_threads"); // Import worker_threads for creating bots
 const {
   initializeDatabase,
   insertIntoRobotURL,
@@ -19,7 +20,6 @@ const {
   retrieveRobotURLCount,
   searchURLAndRankByKeywords,
 } = require("./mySQLHelpers.js"); // Import the mySQLHelpers module
-const { type } = require("os");
 
 const PORT = 8082; // Specify the port for the server for Assignment 3: Search Engine
 
@@ -37,60 +37,115 @@ let buildingDatabase = true; // Flag to indicate if the database is being built,
 let bots = []; // Array to store the bots
 let position = 1; // Position to start fetching URLs from the database via the bots
 
-// Initialize the database and create the tables
-// If there is an error, log it and exit the process with an error code
+// Function to create and start a bot
+function createBot(url) {
+  const bot = new Worker("./worker.js", {
+    workerData: {
+      url,
+      keyWordLimit: K,
+      descriptionLength: MAX_DESCRIPTION_LENGTH,
+      halt: false,
+    },
+  });
 
-//Async context to allow for await.
+  bot.on("message", (message) => {
+    if (message.request === "getNextURL") {
+      // Handle request for next URL from bot
+      retrieveRobotURLByPos(position)
+        .then((newURL) => {
+          if (newURL) {
+            bot.postMessage({ request: "newURL", url: newURL });
+            position++;
+          } else {
+            console.log("No more URLs available for the bot to process.");
+            bot.postMessage({ request: "halt" });
+          }
+        })
+        .catch((err) => {
+          console.error("Error retrieving next URL:", err.message);
+          bot.postMessage({ request: "halt" });
+        });
+    } else if (message.request === "storeRobotURLs") {
+      // Handle storing of URLs found by the bot
+      message.urls.forEach((url) => {
+        insertIntoRobotURL(url).catch((err) =>
+          console.error("Error inserting URL into database:", err.message)
+        );
+      });
+    } else if (message.request === "storeTags") {
+      // Handle storing of parsed tags
+      message.tags.forEach((tag, index) => {
+        insertIntoURLKeyword(message.url, tag, message.ranks[index]).catch(
+          (err) =>
+            console.error("Error inserting keyword into database:", err.message)
+        );
+      });
+    } else if (message.request === "storeDescription") {
+      // Handle storing of description
+      insertIntoURLDescription(message.url, message.description).catch((err) =>
+        console.error("Error inserting description into database:", err.message)
+      );
+    }
+  });
+
+  bot.on("error", (err) => {
+    console.error("Worker thread error:", err.message);
+  });
+
+  bot.on("exit", (code) => {
+    if (code !== 0) {
+      console.error(`Worker stopped with exit code ${code}`);
+    } else {
+      console.log("Worker exited gracefully.");
+    }
+  });
+
+  bots.push(bot); // Add the bot to the bots array
+}
+
+// Initialize the database and create the tables
 (async () => {
-  // Initialize the database and create the tables
-  // If there is an error, log it and exit the process with an error code
   if (!(await initializeDatabase(MAX_DESCRIPTION_LENGTH))) {
     console.log("Error initializing database");
     process.exit(1);
   }
 
-  // Succeeded in initializing the database and creating the tables
   // Insert the starting URLs into the database
   for (let i = 0; i < STARTING_URLS.length; i++) {
     await insertIntoRobotURL(STARTING_URLS[i]);
   }
 
-  // Create the bots
+  // Create the initial bots
+  STARTING_URLS.forEach((url) => createBot(url));
+  buildingDatabase = false;
 
   // Create the server
   http
     .createServer(function (req, res) {
-      // Set CORS headers
-      res.setHeader("Access-Control-Allow-Origin", "https://zpcosc631.com"); // Specify your domain
+      res.setHeader("Access-Control-Allow-Origin", "https://zpcosc631.com");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-      // Handle OPTIONS preflight request
       if (req.method === "OPTIONS") {
         res.writeHead(204);
         res.end();
         return;
       }
 
-      // Parse the request URL
       const parsedUrl = url.parse(req.url, true);
       const pathname = parsedUrl.pathname;
 
-      // Log the request method and pathname
       console.log(`Received ${req.method} request for ${pathname}`);
 
       if (pathname === "/" && req.method === "POST") {
         let body = "";
 
-        // Accumulate incoming data
-        req.on("data", function (chunk) {
+        req.on("data", (chunk) => {
           body += chunk;
         });
 
-        // Handle the complete request
-        req.on("end", async function () {
+        req.on("end", async () => {
           try {
-            // debounce requests if the database is being built
             if (buildingDatabase) {
               console.log("Database is being built, please wait.");
               res.writeHead(503, { "Content-Type": "text/plain" });
@@ -98,13 +153,10 @@ let position = 1; // Position to start fetching URLs from the database via the b
               return;
             }
 
-            // If we're here, the database is built and we can proceed
-            // Parse the incoming JSON data
             const dataObj = JSON.parse(body);
             let keywords = dataObj.keywords;
             let searchType = dataObj.searchType;
 
-            // If keywords is a string, split it into an array of keywords, trim whitespace, and convert to lowercase for standardization
             if (typeof keywords === "string") {
               keywords = keywords
                 .split(",")
@@ -116,11 +168,9 @@ let position = 1; // Position to start fetching URLs from the database via the b
                 .filter(Boolean);
             }
 
-            // Log the incoming request and data
             console.log("Incoming POST request for /");
             console.log(`keywords: ${keywords} searchType: ${searchType}`);
 
-            // if keywords or searchType are not provided, return an error
             if (!keywords || !searchType) {
               console.log(
                 "Keywords or searchType not provided in the request body."
@@ -132,7 +182,6 @@ let position = 1; // Position to start fetching URLs from the database via the b
               return;
             }
 
-            // if keyWords is empty, return an error
             if (!Array.isArray(keywords) || keywords.length === 0) {
               console.log("No keywords provided in the request body.");
               res.writeHead(400, { "Content-Type": "text/plain" });
@@ -140,7 +189,6 @@ let position = 1; // Position to start fetching URLs from the database via the b
               return;
             }
 
-            // if searchType is not 'or' or 'and', return an error
             if (searchType !== "or" && searchType !== "and") {
               console.log("Invalid searchType provided in the request body.");
               res.writeHead(400, { "Content-Type": "text/plain" });
@@ -148,7 +196,6 @@ let position = 1; // Position to start fetching URLs from the database via the b
               return;
             }
 
-            // Perform the search
             await searchURLAndRankByKeywords(keywords, searchType === "or")
               .then((results) => {
                 console.log("Search results:");
@@ -168,7 +215,6 @@ let position = 1; // Position to start fetching URLs from the database via the b
           }
         });
       } else {
-        // Handle other routes or methods
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not Found");
       }
