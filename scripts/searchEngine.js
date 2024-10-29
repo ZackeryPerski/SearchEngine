@@ -51,20 +51,26 @@ function createBot(url) {
   bot.on("message", (message) => {
     if (message.request === "getNextURL") {
       // Handle request for next URL from bot
-      retrieveRobotURLByPos(position)
-        .then((newURL) => {
-          if (newURL) {
-            bot.postMessage({ request: "newURL", url: newURL });
-            position++;
-          } else {
-            console.log("No more URLs available for the bot to process.");
+      if (position <= N) {
+        //This if will cut us off at exploring 500 URLs
+        retrieveRobotURLByPos(position)
+          .then((newURL) => {
+            if (newURL) {
+              bot.postMessage({ request: "newURL", url: newURL });
+              position++;
+            } else {
+              console.log("No more URLs available for the bot to process.");
+              bot.postMessage({ request: "halt" });
+            }
+          })
+          .catch((err) => {
+            console.error("Error retrieving next URL:", err.message);
             bot.postMessage({ request: "halt" });
-          }
-        })
-        .catch((err) => {
-          console.error("Error retrieving next URL:", err.message);
-          bot.postMessage({ request: "halt" });
-        });
+          });
+      } else {
+        console.log("No more URLs available for the bot to process.");
+        bot.postMessage({ request: "halt" });
+      }
     } else if (message.request === "storeRobotURLs") {
       // Handle storing of URLs found by the bot
       message.urls.forEach((url) => {
@@ -115,9 +121,11 @@ function createBot(url) {
     await insertIntoRobotURL(STARTING_URLS[i]);
   }
 
-  // Create the initial bots
-  STARTING_URLS.forEach((url) => createBot(url));
-  buildingDatabase = false;
+  // Create the initial bot (only 1 for now for testing.)
+  createBot(STARTING_URLS[0]);
+  bots.forEach((bot) => bot.postMessage({ request: "start" }));
+
+  buildingDatabase = true;
 
   // Create the server
   http
