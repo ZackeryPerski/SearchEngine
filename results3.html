@@ -97,7 +97,7 @@
     <div class="results-container">
       <img class="search-logo" src="./images/logo.png" alt="Logo" />
       <div class="results-box">
-        <h1 class="results-header">Search Results</h1>
+        <h1 class="results-header">Search Results for</h1>
         <div id="results-list">
           <!-- Search results will be injected here -->
         </div>
@@ -160,6 +160,8 @@
       async function fetchResults() {
         // fetch and handle server responses
         const { keywords, searchType } = getQueryParams();
+        const resultsHeader = document.querySelector(".results-header");
+        resultsHeader.textContent += ` "${keywords}" : ${searchType}`; // display the search keywords
 
         const payload = {
           // creating the payload
@@ -178,8 +180,11 @@
           });
 
           if (response.ok) {
-            const { data } = await response.json();
-            displayResults(data); // display if response is 200
+            response.json().then((data) => {
+              console.log(data);
+              console.dir(data);
+              displayResults(data); // display if response is 200
+            });
           } else if (response.status === 400) {
             displayError(
               "400: Bad Request - The data was not sent in the requested format."
