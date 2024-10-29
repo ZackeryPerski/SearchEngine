@@ -66,7 +66,12 @@ const initializeURLKeywordTable = async () => {
   try {
     await truncateTable("urlKeyword");
     await connection.query(
-      "CREATE TABLE IF NOT EXISTS urlKeyword (url VARCHAR(255), keyword VARCHAR(255), `rank` INT NOT NULL, PRIMARY KEY (url, keyword))"
+      "CREATE TABLE IF NOT EXISTS urlKeyword (" +
+        "`url` VARCHAR(255), " +
+        "`keyword` VARCHAR(255), " +
+        "`rank` INT NOT NULL, " +
+        "PRIMARY KEY (`url`, `keyword`)" +
+        ")"
     );
     console.log("Created table urlKeyword");
   } catch (err) {
@@ -121,7 +126,7 @@ const insertIntoURLKeyword = async (url, keyword, rank) => {
   await initializeConnection(); // Ensure connection is established
   try {
     await connection.query(
-      "INSERT INTO urlKeyword (url, keyword, rank) VALUES (?, ?, ?)",
+      "INSERT INTO urlKeyword (url, keyword, `rank`) VALUES (?, ?, ?)",
       [url, keyword, rank]
     );
     console.log(`Inserted URL ${url} into urlKeyword`);
@@ -168,7 +173,7 @@ const searchURLAndRankByKeywords = async (keywords, OR = true) => {
   let query =
     "SELECT urlKeyword.url as url, " +
     "urlDescription.description as description, " +
-    "SUM(urlKeyword.rank) as rank " +
+    "SUM(urlKeyword.`rank`) as `rank` " +
     "FROM urlKeyword " +
     "INNER JOIN urlDescription ON urlKeyword.url = urlDescription.url " +
     "WHERE ";
@@ -182,7 +187,7 @@ const searchURLAndRankByKeywords = async (keywords, OR = true) => {
   }
   query += "keyword = ?";
 
-  query += " GROUP BY url " + "ORDER BY rank DESC";
+  query += " GROUP BY url " + "ORDER BY `rank` DESC";
 
   try {
     const [rows] = await connection.query(query, keywords);
