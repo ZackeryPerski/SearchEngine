@@ -1,3 +1,5 @@
+// mySQLHelpers.js
+
 const mysql = require("mysql2/promise");
 
 let connection;
@@ -40,9 +42,13 @@ const initializeRobotURLTable = async () => {
   try {
     await truncateTable("robotURL");
     await connection.query(
-      "CREATE TABLE IF NOT EXISTS robotURL (url VARCHAR(255) PRIMARY KEY, pos INT AUTO_INCREMENT, INDEX (pos))"
+      "CREATE TABLE IF NOT EXISTS robotURL (" +
+        "`url` VARCHAR(255) PRIMARY KEY, " +
+        "`pos` INT NOT NULL AUTO_INCREMENT, " +
+        "INDEX (`pos`)" +
+        ") ENGINE=InnoDB AUTO_INCREMENT=1"
     );
-    console.log("Created table robotURL");
+    console.log("Created table robotURL with InnoDB engine");
   } catch (err) {
     console.error("Error creating table robotURL: ", err);
   }
@@ -53,7 +59,10 @@ const initializeURLDescriptionTable = async (descriptionLength) => {
   try {
     await truncateTable("urlDescription");
     await connection.query(
-      `CREATE TABLE IF NOT EXISTS urlDescription (url VARCHAR(255) PRIMARY KEY, description VARCHAR(${descriptionLength}))`
+      `CREATE TABLE IF NOT EXISTS urlDescription (` +
+        "`url` VARCHAR(255) PRIMARY KEY, " +
+        `\`description\` VARCHAR(${descriptionLength})` +
+        ") ENGINE=InnoDB"
     );
     console.log("Created table urlDescription");
   } catch (err) {
@@ -71,7 +80,7 @@ const initializeURLKeywordTable = async () => {
         "`keyword` VARCHAR(255), " +
         "`rank` INT NOT NULL, " +
         "PRIMARY KEY (`url`, `keyword`)" +
-        ")"
+        ") ENGINE=InnoDB"
     );
     console.log("Created table urlKeyword");
   } catch (err) {
@@ -79,7 +88,7 @@ const initializeURLKeywordTable = async () => {
   }
 };
 
-// Call these functions in an async context
+// Initialize all tables
 const initializeTables = async (descriptionLength) => {
   await initializeRobotURLTable();
   await initializeURLDescriptionTable(descriptionLength);
@@ -99,11 +108,15 @@ const initializeDatabase = async (descriptionLength = 255) => {
 };
 
 //------------------------------ Insert Functions ------------------------------//
+
 const insertIntoRobotURL = async (url) => {
-  await initializeConnection(); // Ensure connection is established
+  await initializeConnection();
   try {
-    await connection.query("INSERT INTO robotURL (url) VALUES (?)", [url]);
-    console.log(`Inserted URL ${url} into robotURL`);
+    // Attempt to insert the new URL; ignore if it already exists
+    await connection.query("INSERT IGNORE INTO robotURL (url) VALUES (?)", [
+      url,
+    ]);
+    console.log(`Inserted URL ${url} into robotURL (or ignored if duplicate)`);
   } catch (err) {
     console.error(`Error inserting URL ${url} into robotURL: `, err);
   }
@@ -113,25 +126,42 @@ const insertIntoURLDescription = async (url, description) => {
   await initializeConnection(); // Ensure connection is established
   try {
     await connection.query(
-      "INSERT INTO urlDescription (url, description) VALUES (?, ?)",
+      "INSERT INTO urlDescription (url, description) VALUES (?, ?) " +
+        "ON DUPLICATE KEY UPDATE description = VALUES(description)",
       [url, description]
     );
-    console.log(`Inserted URL ${url} into urlDescription`);
+    console.log(`Inserted description for URL ${url} into urlDescription`);
   } catch (err) {
-    console.error(`Error inserting URL ${url} into urlDescription: `, err);
+    console.error(
+      `Error inserting description for URL ${url} into urlDescription: `,
+      err
+    );
   }
 };
 
-const insertIntoURLKeyword = async (url, keyword, rank) => {
+const insertIntoURLKeyword = async (url, keywords, ranks) => {
   await initializeConnection(); // Ensure connection is established
+  if (keywords.length !== ranks.length) {
+    console.error("Keywords and ranks arrays must have the same length.");
+    return;
+  }
   try {
+    const values = keywords.map((keyword, index) => [
+      url,
+      keyword,
+      ranks[index],
+    ]);
     await connection.query(
-      "INSERT INTO urlKeyword (url, keyword, `rank`) VALUES (?, ?, ?)",
-      [url, keyword, rank]
+      "INSERT INTO urlKeyword (url, keyword, `rank`) VALUES ? " +
+        "ON DUPLICATE KEY UPDATE `rank` = VALUES(`rank`)",
+      [values]
     );
-    console.log(`Inserted URL ${url} into urlKeyword`);
+    console.log(`Inserted keywords for URL ${url} into urlKeyword`);
   } catch (err) {
-    console.error(`Error inserting URL ${url} into urlKeyword: `, err);
+    console.error(
+      `Error inserting keywords for URL ${url} into urlKeyword: `,
+      err
+    );
   }
 };
 
@@ -143,6 +173,10 @@ const retrieveRobotURLByPos = async (pos) => {
       "SELECT url FROM robotURL WHERE pos = ?",
       [pos]
     );
+    if (rows.length === 0) {
+      console.warn(`No URL found at position ${pos}`);
+      return null;
+    }
     return rows[0].url;
   } catch (err) {
     console.error(`Error retrieving URL at position ${pos}: `, err);
@@ -178,14 +212,10 @@ const searchURLAndRankByKeywords = async (keywords, OR = true) => {
     "INNER JOIN urlDescription ON urlKeyword.url = urlDescription.url " +
     "WHERE ";
 
-  for (let i = 0; i < keywords.length - 1; i++) {
-    if (OR) {
-      query += `keyword = ? OR `;
-    } else {
-      query += `keyword = ? AND `;
-    }
-  }
-  query += "keyword = ?";
+  const conditions = keywords
+    .map(() => "keyword = ?")
+    .join(OR ? " OR " : " AND ");
+  query += conditions;
 
   query += " GROUP BY url " + "ORDER BY `rank` DESC";
 

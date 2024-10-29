@@ -1,99 +1,51 @@
+// searchEngine.js
+
 /* 
 Purpose: Create a Node.js server to handle incoming POST and GET requests for a search engine.
- The server here is largely repurposed from the previous assignment.
- Key differences:
- -The server employs bots via worker threads to fetch data from URLs and parse the HTML content.
- -SQL has been offloaded to a separate file for better organization.
+The server employs bots via worker threads to fetch data from URLs and parse the HTML content.
+SQL operations are offloaded to a separate file for better organization.
 */
 
 // Import required modules
 const http = require("http");
-const axios = require("axios");
 const url = require("url"); // Import the url module
 const { Worker } = require("worker_threads"); // Import worker_threads for creating bots
 const {
   initializeDatabase,
   insertIntoRobotURL,
-  insertIntoURLDescription,
-  insertIntoURLKeyword,
-  retrieveRobotURLByPos,
-  retrieveRobotURLCount,
   searchURLAndRankByKeywords,
 } = require("./mySQLHelpers.js"); // Import the mySQLHelpers module
 
-const PORT = 8082; // Specify the port for the server for Assignment 3: Search Engine
+const PORT = 8082; // Specify the port for the server
 
 // Constants for the search engine, database, and bots
-const K = 10;
-const N = 500;
-const MAX_DESCRIPTION_LENGTH = 200;
+const K = 10; // Keyword limit
+const N = 500; // Maximum number of URLs to process
+const MAX_DESCRIPTION_LENGTH = 200; // Maximum description length
 const STARTING_URLS = [
   "https://www.emich.edu",
   "https://annarbornews.com",
   "https://www.whitehouse.gov",
 ];
 
-let buildingDatabase = true; // Flag to indicate if the database is being built, bounce requests if true
+let buildingDatabase = true; // Flag to indicate if the database is being built
 let bots = []; // Array to store the bots
 let position = 1; // Position to start fetching URLs from the database via the bots
 
 // Function to create and start a bot
-function createBot(url) {
-  const bot = new Worker("./worker.js", {
-    workerData: {
-      url,
-      keyWordLimit: K,
-      descriptionLength: MAX_DESCRIPTION_LENGTH,
-      halt: false,
-    },
-  });
-
+function createBot() {
+  const bot = new Worker("./worker.js");
   bot.on("message", (message) => {
-    if (message.request === "getNextURL") {
-      // Handle request for next URL from bot
+    if (message.request === "getNextPos") {
       if (position <= N) {
-        //This if will cut us off at exploring 500 URLs
-        retrieveRobotURLByPos(position)
-          .then((newURL) => {
-            if (newURL) {
-              bot.postMessage({ request: "newURL", url: newURL });
-              position++;
-            } else {
-              console.log("No more URLs available for the bot to process.");
-              bot.postMessage({ request: "halt" });
-              buildingDatabase = false; //More complex logic needed later, but for a single bot, this is fine.
-            }
-          })
-          .catch((err) => {
-            console.error("Error retrieving next URL:", err.message);
-            position++; //don't halt the bot, just move on to the next URL
-          });
+        bot.postMessage({ pos: position });
+        position++;
       } else {
-        console.log("No more URLs available for the bot to process.");
-        bot.postMessage({ request: "halt" });
-        buildingDatabase = false; //More complex logic needed later, but for a single bot, this is fine.
+        bot.postMessage({ pos: null }); // Signal no more positions
+        buildingDatabase = false; // Database building is complete
       }
-    } else if (message.request === "storeRobotURLs") {
-      // Handle storing of URLs found by the bot
-      message.urls.forEach((url) => {
-        insertIntoRobotURL(url).catch((err) =>
-          console.error("Error inserting URL into database:", err.message)
-        );
-      });
-    } else if (message.request === "storeTags") {
-      // Handle storing of parsed tags
-      message.tags.forEach((tag, index) => {
-        insertIntoURLKeyword(message.url, tag, message.ranks[index]).catch(
-          (err) =>
-            console.error("Error inserting keyword into database:", err.message)
-        );
-      });
-    } else if (message.request === "storeDescription") {
-      // Handle storing of description
-      insertIntoURLDescription(message.url, message.description).catch((err) =>
-        console.error("Error inserting description into database:", err.message)
-      );
     }
+    // No need to handle storage requests as bots handle storage directly
   });
 
   bot.on("error", (err) => {
@@ -111,7 +63,7 @@ function createBot(url) {
   bots.push(bot); // Add the bot to the bots array
 }
 
-// Initialize the database and create the tables
+// Initialize the database and create the bots
 (async () => {
   if (!(await initializeDatabase(MAX_DESCRIPTION_LENGTH))) {
     console.log("Error initializing database");
@@ -123,16 +75,20 @@ function createBot(url) {
     await insertIntoRobotURL(STARTING_URLS[i]);
   }
 
-  // Create the initial bot (only 1 for now for testing.)
-  createBot(STARTING_URLS[0]);
-  bots.forEach((bot) => bot.postMessage({ request: "start" }));
+  // Create and start bots
+  const BOT_COUNT = 1; // Multiple bots are unsafe atm, they go too fast.
+  for (let i = 0; i < BOT_COUNT; i++) {
+    createBot();
+  }
+  // Bots will request positions upon starting
+  bots.forEach((bot) => bot.postMessage({ request: "getNextPos" }));
 
   buildingDatabase = true;
 
   // Create the server
   http
     .createServer(function (req, res) {
-      res.setHeader("Access-Control-Allow-Origin", "https://zpcosc631.com");
+      res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
@@ -230,6 +186,6 @@ function createBot(url) {
       }
     })
     .listen(PORT, "127.0.0.1", () => {
-      console.log(`Server running at http://zp-cosc631.com:${PORT}/`);
+      console.log(`Server running at http://127.0.0.1:${PORT}/`);
     });
 })();
