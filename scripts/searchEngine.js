@@ -19,13 +19,13 @@ const {
 const PORT = 8082; // Specify the port for the server
 
 // Constants for the search engine, database, and bots
-const K = 10; // Keyword limit
-const N = 500; // Maximum number of URLs to process
+const K = 5; // Keyword limit
+const N = 250; // Maximum number of URLs to process
 const MAX_DESCRIPTION_LENGTH = 200; // Maximum description length
 const STARTING_URLS = [
-  "https://www.emich.edu",
-  "https://annarbornews.com",
   "https://www.whitehouse.gov",
+  "http://www.wayne.edu",
+  "http://www.cnn.com",
 ];
 
 let buildingDatabase = true; // Flag to indicate if the database is being built
@@ -34,7 +34,9 @@ let position = 1; // Position to start fetching URLs from the database via the b
 
 // Function to create and start a bot
 function createBot() {
-  const bot = new Worker("./worker.js");
+  const bot = new Worker("./worker.js", {
+    workerData: { K: K, DESCRIPTION_LENGTH: MAX_DESCRIPTION_LENGTH },
+  });
   bot.on("message", (message) => {
     if (message.request === "getNextPos") {
       if (position <= N) {

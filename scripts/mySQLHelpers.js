@@ -9,7 +9,7 @@ const initializeConnection = async () => {
   if (!connection) {
     try {
       connection = await mysql.createConnection({
-        host: "18.217.106.69",
+        host: "3.19.239.97",
         user: "COSC631",
         password: "COSC631",
         database: "cosc631",
