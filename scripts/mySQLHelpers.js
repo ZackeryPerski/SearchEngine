@@ -212,15 +212,23 @@ const searchURLAndRankByKeywords = async (keywords, OR = true) => {
     "INNER JOIN urlDescription ON urlKeyword.url = urlDescription.url " +
     "WHERE ";
 
+  // Use LIKE for partial matching of keywords
   const conditions = keywords
-    .map(() => "keyword = ?")
+    .map(() => "keyword LIKE ?")
     .join(OR ? " OR " : " AND ");
   query += conditions;
 
   query += " GROUP BY url " + "ORDER BY `rank` DESC";
 
+  // Modify keywords array to work with LIKE (appending a bunch of wildcards to allow partial matching)
+  const modifiedKeywords = keywords.map((keyword) => `%${keyword}%`);
+
+  //For debugging...
+  console.log("Query: ", query);
+  console.log("Modified keywords: ", modifiedKeywords);
+
   try {
-    const [rows] = await connection.query(query, keywords);
+    const [rows] = await connection.query(query, modifiedKeywords);
     return rows;
   } catch (err) {
     console.error(`Error searching for keywords: `, err);
