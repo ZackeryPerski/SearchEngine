@@ -1,6 +1,6 @@
 // worker.js
 
-const { parentPort } = require("worker_threads");
+const { parentPort, workerData } = require("worker_threads");
 const axios = require("axios");
 const cheerio = require("cheerio"); // Library to parse HTML data
 const {
@@ -11,8 +11,8 @@ const {
   insertIntoURLKeyword,
 } = require("./mySQLHelpers.js"); // Import database helper functions
 
-const keyWordLimit = 10; // Set your desired keyword limit (K)
-const descriptionLength = 200; // Maximum length of the description to store in the database
+const keyWordLimit = workerData.K; // Set your desired keyword limit (K)
+const descriptionLength = workerData.DESCRIPTION_LENGTH; // Maximum length of the description to store in the database
 let halt = false; // A flag to stop the worker from processing more URLs
 
 // Function to request the next position from the parent process

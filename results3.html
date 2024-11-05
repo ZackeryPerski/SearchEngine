@@ -52,8 +52,10 @@
 
       .results-table {
         width: 100%;
+        max-width: 780px; /* Set a maximum width to prevent horizontal overflow */
         border-collapse: collapse;
         margin-top: 1rem;
+        table-layout: fixed; /* Ensures columns maintain a fixed width */
       }
 
       .results-table th,
@@ -61,6 +63,8 @@
         padding: 1rem;
         border: 1px solid #ddd;
         text-align: left;
+        word-wrap: break-word; /* Ensures text wraps within cells */
+        overflow-wrap: break-word; /* Wraps long words within the cell */
       }
 
       .results-table th {
