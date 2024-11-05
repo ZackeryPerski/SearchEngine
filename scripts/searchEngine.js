@@ -13,6 +13,7 @@ const { Worker } = require("worker_threads"); // Import worker_threads for creat
 const {
   initializeDatabase,
   insertIntoRobotURL,
+  retrieveDescriptionURLCount,
   searchURLAndRankByKeywords,
 } = require("./mySQLHelpers.js"); // Import the mySQLHelpers module
 
@@ -31,6 +32,7 @@ const STARTING_URLS = [
 let buildingDatabase = true; // Flag to indicate if the database is being built
 let bots = []; // Array to store the bots
 let position = 1; // Position to start fetching URLs from the database via the bots
+let additional = 0; // Additional URLs to fetch
 
 // Function to create and start a bot
 function createBot() {
@@ -39,12 +41,30 @@ function createBot() {
   });
   bot.on("message", (message) => {
     if (message.request === "getNextPos") {
-      if (position <= N) {
+      if (!message.success) {
+        console.log(
+          "Worker thread failed to process URL, adding additional URL to process."
+        );
+        additional++;
+      }
+      if (position <= N + additional) {
         bot.postMessage({ pos: position });
         position++;
       } else {
-        bot.postMessage({ pos: null }); // Signal no more positions
-        buildingDatabase = false; // Database building is complete
+        //getting near the end of the data processing, need to ensure that we've stored N keywordURL entries.
+        retrieveDescriptionURLCount().then((count) => {
+          if (count < N) {
+            console.log(
+              "Not enough URLs processed, adding more URLs to process."
+            );
+            additional += N - count;
+            bot.postMessage({ pos: position });
+            position++;
+          } else {
+            bot.postMessage({ pos: null }); // Signal no more positions
+            buildingDatabase = false; // Database building is complete
+          }
+        });
       }
     }
     // No need to handle storage requests as bots handle storage directly

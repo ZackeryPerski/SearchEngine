@@ -197,6 +197,19 @@ const retrieveRobotURLCount = async () => {
   }
 };
 
+const retrieveDescriptionURLCount = async () => {
+  await initializeConnection(); // Ensure connection is established
+  try {
+    const [rows] = await connection.query(
+      "SELECT COUNT(*) as count FROM urlDescription"
+    );
+    return rows[0].count;
+  } catch (err) {
+    console.error(`Error retrieving count of urlDescription: `, err);
+    return null;
+  }
+};
+
 const searchURLAndRankByKeywords = async (keywords, OR = true) => {
   await initializeConnection(); // Ensure connection is established
 
@@ -245,5 +258,6 @@ module.exports = {
   insertIntoURLKeyword,
   retrieveRobotURLByPos,
   retrieveRobotURLCount,
+  retrieveDescriptionURLCount,
   searchURLAndRankByKeywords,
 };

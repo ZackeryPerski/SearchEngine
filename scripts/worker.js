@@ -16,8 +16,8 @@ const descriptionLength = workerData.DESCRIPTION_LENGTH; // Maximum length of th
 let halt = false; // A flag to stop the worker from processing more URLs
 
 // Function to request the next position from the parent process
-function requestNextPosFromParent() {
-  parentPort.postMessage({ request: "getNextPos" });
+function requestNextPosFromParent(success = true) {
+  parentPort.postMessage({ request: "getNextPos", success });
 }
 
 // Function to fetch page data using axios
@@ -147,7 +147,7 @@ async function processURLByPos(pos) {
   const url = await retrieveRobotURLByPos(pos);
   if (!url) {
     console.warn(`No URL found at position ${pos}`);
-    requestNextPosFromParent();
+    requestNextPosFromParent(false);
     return;
   }
 
@@ -160,6 +160,10 @@ async function processURLByPos(pos) {
 
     // Find and insert new URLs into robotURL
     let urlList = findURLsInHTML($, currentURL);
+    //clean the urlList of duplicates to avoid inserting the same URL multiple times
+    urlList = [...new Set(urlList)];
+    urlList = urlList.filter((url) => url.startsWith("http")); // Filter out non-HTTP URLs (remove mailto, tel, etc.)
+    urlList = urlList.slice(0, 20); // Limit the number of URLs to insert (prevents one page from spawning too many new URLs)
     for (const newURL of urlList) {
       await insertIntoRobotURL(newURL);
     }
