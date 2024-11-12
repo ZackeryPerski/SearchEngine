@@ -45,6 +45,7 @@ function createBot() {
     if (message.request === "getNextPos") {
       if (!buildingDatabase) {
         // Database building is complete, ignore the request, as bots will be created to handle the search requests.
+        // These bots automatically request the next position to process on initialization, so we don't need to handle this request.
         return;
       }
       if (!message.success) {

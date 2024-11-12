@@ -22,7 +22,7 @@ function requestNextPosFromParent(success = true) {
 
 // Function to fetch HTML with Playwright (for JavaScript-heavy pages)
 const fetchHtmlWithPlaywright = async (url, retries = 3) => {
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   try {
     const browser = await chromium.launch({ headless: true });
@@ -30,21 +30,26 @@ const fetchHtmlWithPlaywright = async (url, retries = 3) => {
 
     // Set custom headers
     await page.setExtraHTTPHeaders({
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9'
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+      "Accept-Language": "en-US,en;q=0.9",
     });
 
-    await page.goto(url, { waitUntil: 'domcontentloaded' }); // Wait for page load
+    await page.goto(url, { waitUntil: "domcontentloaded" }); // Wait for page load
 
     // Add another random delay of 1 to 5 seconds
-    await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000)));
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000))
+    );
 
     // Scroll the page to load additional content
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
 
     // Add another random delay of 1 to 5 seconds
-    await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000)));
-    
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000))
+    );
+
     const html = await page.content(); // Get HTML content of the page
     await browser.close();
     return html;
@@ -217,12 +222,44 @@ async function processURLByPos(pos) {
   requestNextPosFromParent();
 }
 
+// --Additional Helper Functions-- //
+async function processPhraseSearch(phrases, pos) {
+  const url = await retrieveRobotURLByPos(pos);
+  if (!url) {
+    console.warn(`No URL found at position ${pos}`);
+    parentPort.postMessage({ request: "searchResult", result: null });
+    return;
+  }
+
+  let htmlContent = await fetchHtmlWithPlaywright(url);
+  if (!htmlContent) {
+    console.log(`Failed to retrieve or parse HTML for URL: ${url}`);
+    parentPort.postMessage({ request: "searchResult", result: null });
+    return;
+  }
+
+  const $ = cheerio.load(htmlContent);
+  const content = $.root().text();
+
+  // Perform phrase matching
+  const results = phrases.filter((phrase) => content.includes(phrase));
+  if (results.length > 0) {
+    parentPort.postMessage({
+      request: "searchResult",
+      result: { url, phrases: results },
+    });
+  } else {
+    parentPort.postMessage({ request: "searchResult", result: null });
+  }
+}
+
 // Message handling from parent process
 parentPort.on("message", async (message) => {
-  if (message.pos !== undefined) {
+  if (message.request === "phraseSearch" && message.phrases && message.pos) {
+    await processPhraseSearch(message.phrases, message.pos);
+  } else if (message.pos !== undefined) {
     if (message.pos !== null) {
-      const pos = message.pos;
-      await processURLByPos(pos);
+      await processURLByPos(message.pos);
     } else {
       console.log("No more URLs to process. Bot is exiting.");
       process.exit(0);
