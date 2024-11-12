@@ -1,7 +1,7 @@
 // worker.js
 
 const { parentPort, workerData } = require("worker_threads");
-const axios = require("axios");
+const { chromium } = require("playwright");
 const cheerio = require("cheerio"); // Library to parse HTML data
 const {
   initializeConnection,
@@ -20,16 +20,45 @@ function requestNextPosFromParent(success = true) {
   parentPort.postMessage({ request: "getNextPos", success });
 }
 
-// Function to fetch page data using axios
-async function retrievePageData(url) {
+// Function to fetch HTML with Playwright (for JavaScript-heavy pages)
+const fetchHtmlWithPlaywright = async (url, retries = 3) => {
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
   try {
-    const response = await axios.get(url, { timeout: 5000 });
-    return response.data;
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+
+    // Set custom headers
+    await page.setExtraHTTPHeaders({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9'
+    });
+
+    await page.goto(url, { waitUntil: 'domcontentloaded' }); // Wait for page load
+
+    // Add another random delay of 1 to 5 seconds
+    await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000)));
+
+    // Scroll the page to load additional content
+    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+
+    // Add another random delay of 1 to 5 seconds
+    await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000)));
+    
+    const html = await page.content(); // Get HTML content of the page
+    await browser.close();
+    return html;
   } catch (error) {
-    console.error(`Error fetching data from ${url}:`, error.message);
-    return null;
+    console.error(`Error navigating to URL with Playwright ${url}:`, error);
+
+    // Check if it's a verification error and if there are retries left
+    if (retries > 0) {
+      console.log(`Waiting for 10 seconds before retrying...`);
+      await sleep(10000); // 10-second wait
+      return fetchHtmlWithPlaywright(url, retries - 1); // Retry fetching data
+    }
   }
-}
+};
 
 // Function to remove URL fragment
 function removeURLFragment(url) {
@@ -154,13 +183,13 @@ async function processURLByPos(pos) {
   const currentURL = url;
   console.log(`Bot processing URL at position ${pos}: ${currentURL}`);
 
-  let htmlData = await retrievePageData(currentURL);
-  if (htmlData && typeof htmlData === "string") {
-    const $ = cheerio.load(htmlData);
+  let htmlContent = await fetchHtmlWithPlaywright(currentURL); // Fetch HTML using Playwright
+  if (htmlContent) {
+    const $ = cheerio.load(htmlContent);
 
     // Find and insert new URLs into robotURL
     let urlList = findURLsInHTML($, currentURL);
-    //clean the urlList of duplicates to avoid inserting the same URL multiple times
+    // Clean the urlList of duplicates to avoid inserting the same URL multiple times
     urlList = [...new Set(urlList)];
     urlList = urlList.filter((url) => url.startsWith("http")); // Filter out non-HTTP URLs (remove mailto, tel, etc.)
     urlList = urlList.slice(0, 20); // Limit the number of URLs to insert (prevents one page from spawning too many new URLs)
