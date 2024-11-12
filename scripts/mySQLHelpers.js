@@ -234,6 +234,26 @@ const searchPositionsByKeyword = async (keyword) => {
   }
 };
 
+const searchDescriptionByURL = async (urls) => {
+  await initializeConnection(); // Ensure connection is established
+  if (!urls || urls.length === 0) {
+    // No URLs to search for
+    return [];
+  }
+
+  // Adjust query to handle multiple URLs
+  const placeholders = urls.map(() => "?").join(", ");
+  const query = `SELECT url, description FROM urlDescription WHERE url IN (${placeholders})`;
+
+  try {
+    const [rows] = await connection.query(query, urls);
+    return rows; // Returns an array of objects with { url, description }
+  } catch (err) {
+    console.error(`Error searching for descriptions: `, err);
+    return [];
+  }
+};
+
 const searchURLAndRankByKeywords = async (keywords, OR = true) => {
   await initializeConnection(); // Ensure connection is established
 
@@ -286,4 +306,5 @@ module.exports = {
   retrieveDescriptionURLCount,
   searchURLAndRankByKeywords,
   searchPositionsByKeyword,
+  searchDescriptionByURL,
 };

@@ -1,64 +1,61 @@
 // searchEngine.js
 
-/* 
-Purpose: Create a Node.js server to handle incoming POST and GET requests for a search engine.
-The server employs bots via worker threads to fetch data from URLs and parse the HTML content.
-SQL operations are offloaded to a separate file for better organization.
-*/
-
-// Import required modules
 const http = require("http");
-const url = require("url"); // Import the url module
-const { Worker } = require("worker_threads"); // Import worker_threads for creating bots
+const url = require("url");
+const { Worker } = require("worker_threads");
 const {
   initializeDatabase,
   insertIntoRobotURL,
   retrieveDescriptionURLCount,
   searchURLAndRankByKeywords,
   searchPositionsByKeyword,
-} = require("./mySQLHelpers.js"); // Import the mySQLHelpers module
+  searchDescriptionByURL,
+} = require("./mySQLHelpers.js");
 
-const PORT = 8082; // Specify the port for the server
-
-// Constants for the search engine, database, and bots
-const K = 5; // Keyword limit
-const N = 250; // Maximum number of URLs to process
-const MAX_DESCRIPTION_LENGTH = 200; // Maximum description length
+const PORT = 8082;
+const K = 5;
+const N = 250;
+const MAX_DESCRIPTION_LENGTH = 200;
 const STARTING_URLS = [
   "https://www.whitehouse.gov",
   "http://www.wayne.edu",
   "http://www.cnn.com",
 ];
 
-let buildingDatabase = true; // Flag to indicate if the database is being built
-let bots = []; // Array to store the bots
-let phraseResults = []; // Array to store the results of phrase searches
-let position = 1; // Position to start fetching URLs from the database via the bots
-let additional = 0; // Additional URLs to fetch
+let buildingDatabase = true;
+let bots = [];
+let phraseResults = [];
+let position = 1;
+let additional = 0;
 
-// Function to create and start a bot
 function createBot() {
   const bot = new Worker("./worker.js", {
     workerData: { K: K, DESCRIPTION_LENGTH: MAX_DESCRIPTION_LENGTH },
   });
+
+  console.log("Bot created and requesting initial position.");
+
   bot.on("message", (message) => {
+    console.log("Main thread received message from bot:", message);
+
     if (message.request === "getNextPos") {
-      if (!buildingDatabase) {
-        // Database building is complete, ignore the request, as bots will be created to handle the search requests.
-        // These bots automatically request the next position to process on initialization, so we don't need to handle this request.
-        return;
-      }
+      console.log(
+        `Received getNextPos message from bot, success status: ${message.success}`
+      );
+      if (!buildingDatabase) return;
+
       if (!message.success) {
         console.log(
           "Worker thread failed to process URL, adding additional URL to process."
         );
         additional++;
       }
+
       if (position <= N + additional) {
+        console.log(`Sending position ${position} to bot`);
         bot.postMessage({ pos: position });
         position++;
       } else {
-        //getting near the end of the data processing, need to ensure that we've stored N keywordURL entries.
         retrieveDescriptionURLCount().then((count) => {
           if (count < N) {
             console.log(
@@ -68,16 +65,16 @@ function createBot() {
             bot.postMessage({ pos: position });
             position++;
           } else {
-            bot.postMessage({ pos: null }); // Signal no more positions
-            buildingDatabase = false; // Database building is complete
+            console.log("Database building complete. Signaling bot to stop.");
+            bot.postMessage({ pos: null });
+            buildingDatabase = false;
           }
         });
       }
     }
-    // No need to handle storage requests as bots handle storage directly
+
     if (message.request === "searchResult") {
-      console.log("Search result for phrase search:");
-      console.log(message.result);
+      console.log("Received search result from bot:", message.result);
       phraseResults.push(message.result);
     }
   });
@@ -94,7 +91,9 @@ function createBot() {
     }
   });
 
-  bots.push(bot); // Add the bot to the bots array
+  bots.push(bot);
+  console.log("Sending initial getNextPos request to bot");
+  bot.postMessage({ request: "getNextPos" });
 }
 
 // Initialize the database and create the bots
@@ -104,22 +103,17 @@ function createBot() {
     process.exit(1);
   }
 
-  // Insert the starting URLs into the database
   for (let i = 0; i < STARTING_URLS.length; i++) {
     await insertIntoRobotURL(STARTING_URLS[i]);
   }
 
-  // Create and start bots
-  const BOT_COUNT = 1; // Multiple bots are unsafe atm, they go too fast.
+  const BOT_COUNT = 3;
   for (let i = 0; i < BOT_COUNT; i++) {
     createBot();
   }
-  // Bots will request positions upon starting
-  bots.forEach((bot) => bot.postMessage({ request: "getNextPos" }));
 
   buildingDatabase = true;
 
-  // Create the server
   http
     .createServer(function (req, res) {
       res.setHeader("Access-Control-Allow-Origin", "*");
@@ -147,7 +141,6 @@ function createBot() {
         req.on("end", async () => {
           try {
             if (buildingDatabase) {
-              console.log("Database is being built, please wait.");
               res.writeHead(503, { "Content-Type": "text/plain" });
               res.end("Initial database state is being built, please wait.");
               return;
@@ -160,21 +153,19 @@ function createBot() {
             if (typeof keywords === "string") {
               keywords = keywords
                 .split(",")
-                .map((keyword) => keyword.trim().toLowerCase())
+                .map((k) => k.trim().toLowerCase())
                 .filter(Boolean);
             } else if (Array.isArray(keywords)) {
               keywords = keywords
-                .map((keyword) => keyword.trim().toLowerCase())
+                .map((k) => k.trim().toLowerCase())
                 .filter(Boolean);
             }
 
-            console.log("Incoming POST request for /");
-            console.log(`keywords: ${keywords} searchType: ${searchType}`);
+            console.log(
+              `Incoming POST request for / with keywords: ${keywords}, searchType: ${searchType}`
+            );
 
             if (!keywords || !searchType) {
-              console.log(
-                "Keywords or searchType not provided in the request body."
-              );
               res.writeHead(400, { "Content-Type": "text/plain" });
               res.end(
                 "Keywords and searchType are required in the request body"
@@ -182,93 +173,78 @@ function createBot() {
               return;
             }
 
-            if (!Array.isArray(keywords) || keywords.length === 0) {
-              console.log("No keywords provided in the request body.");
-              res.writeHead(400, { "Content-Type": "text/plain" });
-              res.end("Keywords are required in the request body");
-              return;
-            }
-
             if (searchType !== "or" && searchType !== "and") {
-              console.log("Invalid searchType provided in the request body.");
               res.writeHead(400, { "Content-Type": "text/plain" });
               res.end("SearchType must be 'or' or 'and'");
               return;
             }
 
-            //split the keywords into two arrays, one for "phrases" and one for keywords.
-            //"phrases" should be searched for as a whole, in addition, they trigger a dynamic search based on urls that contain the phrase.
-            //If there are no "phrases", then the search is a simple search for the keywords already in the database.
             let phrases = [];
             let words = [];
             const phraseRegex = /^".*"$/;
             keywords.forEach((keyword) => {
               if (phraseRegex.test(keyword)) {
-                phrases.push(keyword.slice(1, -1)); // Remove the surrounding quotes
+                phrases.push(keyword.slice(1, -1));
               } else {
                 words.push(keyword);
               }
             });
 
-            // Phrase searches need to have at least one keyword associated with them.
             if (phrases.length > 0 && words.length === 0) {
-              console.log(
-                "Phrases must be associated with at least one keyword."
-              );
               res.writeHead(400, { "Content-Type": "text/plain" });
-              res.end(
-                "Phrases must be associated with at least one keyword. Only the first keyword will be used."
-              );
+              res.end("Phrases must be associated with at least one keyword.");
               return;
             }
 
-            // If there are phrases, we need to search for URLs that contain the phrases
             if (phrases.length > 0) {
-              // Perform initial search of the database for URLs that contain the keywords
-              // The purpose of this search is to ensure that all potential URLs that contain the keywords are processed in the database before the search
-              // This is to ensure that the search results are as accurate as possible.
               await searchPositionsByKeyword(words[0]).then(
                 async (positions) => {
                   if (positions.length === 0) {
-                    console.log("No URLs found containing the keywords.");
                     res.writeHead(200, { "Content-Type": "application/json" });
                     res.end(JSON.stringify([]));
                     return;
                   } else {
-                    console.log(
-                      "Additional URLs found containing the keyword."
-                    );
-                    console.log(positions);
-                    await phraseSearch(phrases, positions).then(() => {
-                      console.log("Phrase search results:");
-                      console.log(phraseResults);
+                    await phraseSearch(
+                      phrases,
+                      positions,
+                      searchType == "or"
+                    ).then(async () => {
+                      let formattedResults = [];
+
+                      const urls = phraseResults.map((result) => result.url);
+                      const descriptions = await searchDescriptionByURL(urls);
+
+                      formattedResults = phraseResults.map((result) => {
+                        const description =
+                          descriptions.find((desc) => desc.url === result.url)
+                            ?.description || "";
+                        return {
+                          url: result.url,
+                          description: description,
+                          rank: result.rank,
+                        };
+                      });
+
                       res.writeHead(200, {
                         "Content-Type": "application/json",
                       });
-                      res.end(JSON.stringify(phraseResults));
+                      res.end(JSON.stringify(formattedResults));
                     });
                   }
                 }
               );
-              // If there are no phrases, we can perform a simple search for the keywords in the database
             } else {
-              //--This is the original search code, it is not used if there are phrases to search for.--//
-              // Perform search of the database for URLs that contain the keywords and rank them
               await searchURLAndRankByKeywords(keywords, searchType === "or")
                 .then((results) => {
-                  console.log("Search results:");
-                  console.log(results);
                   res.writeHead(200, { "Content-Type": "application/json" });
                   res.end(JSON.stringify(results));
                 })
                 .catch((err) => {
-                  console.error("Error performing search:", err.message);
                   res.writeHead(500, { "Content-Type": "application/json" });
                   res.end(JSON.stringify({ error: "Error performing search" }));
                 });
             }
           } catch (err) {
-            console.error("Error parsing JSON:", err.message);
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Invalid JSON in request body" }));
           }
@@ -283,9 +259,8 @@ function createBot() {
     });
 })();
 
-// additional helper functions
-const phraseSearch = async (phrases, positions) => {
-  bots = []; // Clear the bots array
+const phraseSearch = async (phrases, positions, OR = true) => {
+  bots = [];
   const botPromises = positions.map((pos) => {
     return new Promise((resolve, reject) => {
       const bot = new Worker("./worker.js", {
@@ -315,6 +290,7 @@ const phraseSearch = async (phrases, positions) => {
         request: "phraseSearch",
         phrases: phrases,
         pos: pos,
+        or: OR,
       });
 
       bots.push(bot);

@@ -2,21 +2,22 @@
 
 const { parentPort, workerData } = require("worker_threads");
 const { chromium } = require("playwright");
-const cheerio = require("cheerio"); // Library to parse HTML data
+const cheerio = require("cheerio");
 const {
   initializeConnection,
   retrieveRobotURLByPos,
   insertIntoRobotURL,
   insertIntoURLDescription,
   insertIntoURLKeyword,
-} = require("./mySQLHelpers.js"); // Import database helper functions
+} = require("./mySQLHelpers.js");
 
-const keyWordLimit = workerData.K; // Set your desired keyword limit (K)
-const descriptionLength = workerData.DESCRIPTION_LENGTH; // Maximum length of the description to store in the database
-let halt = false; // A flag to stop the worker from processing more URLs
+const keyWordLimit = workerData.K;
+const descriptionLength = workerData.DESCRIPTION_LENGTH;
+let halt = false;
 
-// Function to request the next position from the parent process
+// Function to request the next position from the main thread
 function requestNextPosFromParent(success = true) {
+  console.log("Worker requesting next position from parent");
   parentPort.postMessage({ request: "getNextPos", success });
 }
 
@@ -28,55 +29,132 @@ const fetchHtmlWithPlaywright = async (url, retries = 3) => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
 
-    // Set custom headers
     await page.setExtraHTTPHeaders({
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0 ... Safari/537.36",
       "Accept-Language": "en-US,en;q=0.9",
     });
 
-    await page.goto(url, { waitUntil: "domcontentloaded" }); // Wait for page load
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
-    // Add another random delay of 1 to 5 seconds
     await new Promise((resolve) =>
       setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000))
     );
 
-    // Scroll the page to load additional content
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-
-    // Add another random delay of 1 to 5 seconds
     await new Promise((resolve) =>
       setTimeout(resolve, Math.floor(Math.random() * 4000 + 1000))
     );
 
-    const html = await page.content(); // Get HTML content of the page
+    const html = await page.content();
     await browser.close();
     return html;
   } catch (error) {
     console.error(`Error navigating to URL with Playwright ${url}:`, error);
 
-    // Check if it's a verification error and if there are retries left
     if (retries > 0) {
-      console.log(`Waiting for 10 seconds before retrying...`);
-      await sleep(10000); // 10-second wait
-      return fetchHtmlWithPlaywright(url, retries - 1); // Retry fetching data
+      console.log(`Retrying... (${4 - retries} attempt(s) left)`);
+      await sleep(10000);
+      return fetchHtmlWithPlaywright(url, retries - 1);
     }
   }
 };
 
-// Function to remove URL fragment
-function removeURLFragment(url) {
-  return url.split("#")[0];
+// Function to process phrase search requests with AND/OR mode
+async function processPhraseSearch(phrases, pos, orMode) {
+  console.time(`processPhraseSearch at position ${pos}`);
+  const url = await retrieveRobotURLByPos(pos);
+  if (!url) {
+    console.warn(`No URL found at position ${pos}`);
+    parentPort.postMessage({ request: "searchResult", result: null });
+    return;
+  }
+
+  let htmlContent = await fetchHtmlWithPlaywright(url);
+  if (!htmlContent) {
+    console.log(`Failed to retrieve or parse HTML for URL: ${url}`);
+    parentPort.postMessage({ request: "searchResult", result: null });
+    return;
+  }
+
+  const $ = cheerio.load(htmlContent);
+  const content = $.root().text();
+
+  let rank = 0;
+  let allPhrasesFound = true;
+
+  for (const phrase of phrases) {
+    const regex = new RegExp(`\\b${escapeRegExp(phrase)}\\b`, "gi");
+    const matches = content.match(regex);
+    const occurrences = matches ? matches.length : 0;
+
+    if (orMode) {
+      rank += occurrences;
+    } else {
+      if (occurrences > 0) {
+        rank += occurrences;
+      } else {
+        allPhrasesFound = false;
+        break;
+      }
+    }
+  }
+
+  if (orMode || allPhrasesFound) {
+    parentPort.postMessage({
+      request: "searchResult",
+      result: { url: url, rank: rank },
+    });
+  } else {
+    parentPort.postMessage({ request: "searchResult", result: null });
+  }
+  console.timeEnd(`processPhraseSearch at position ${pos}`);
 }
 
-// Function to transform relative URLs to absolute URLs
-function transformRelativeURL(url, baseURL) {
-  if (url.startsWith("http")) return url;
-  return new URL(url, baseURL).href;
+// Function to process URL by position (original functionality)
+async function processURLByPos(pos) {
+  console.time(`processURLByPos at position ${pos}`);
+  const url = await retrieveRobotURLByPos(pos);
+  if (!url) {
+    console.warn(`No URL found at position ${pos}`);
+    requestNextPosFromParent(false);
+    return;
+  }
+
+  console.log(`Bot processing URL at position ${pos}: ${url}`);
+
+  let htmlContent = await fetchHtmlWithPlaywright(url);
+  if (htmlContent) {
+    const $ = cheerio.load(htmlContent);
+
+    let urlList = findURLsInHTML($, url);
+    urlList = [...new Set(urlList)].filter((url) => url.startsWith("http"));
+    urlList = urlList.slice(0, 20);
+    for (const newURL of urlList) {
+      await insertIntoRobotURL(newURL);
+    }
+
+    let keyWordList = findKeyWordsInHTML($);
+    if (keyWordList.length > 0 && !halt) {
+      let rankings = findRankings(keyWordList, $);
+
+      await insertIntoURLKeyword(url, keyWordList, rankings);
+      let description = buildDescription($, descriptionLength);
+      await insertIntoURLDescription(url, description);
+    } else {
+      console.log(`No keywords found for URL: ${url}`);
+    }
+  } else {
+    console.log(`Failed to retrieve or parse HTML for URL: ${url}`);
+  }
+
+  console.log(
+    `Completed processing URL at position ${pos}. Requesting next position.`
+  );
+  console.timeEnd(`processURLByPos at position ${pos}`);
+  requestNextPosFromParent();
 }
 
-// Function to find URLs in HTML
+// Utility functions for original functionality
 function findURLsInHTML($, currentURL) {
   let urls = [];
   $("a[href]").each((_, element) => {
@@ -87,7 +165,6 @@ function findURLsInHTML($, currentURL) {
   return urls;
 }
 
-// Function to find keywords in HTML
 function findKeyWordsInHTML($) {
   let tags = [];
   const metaTags = $('meta[name="keywords"]').attr("content");
@@ -111,19 +188,6 @@ function findKeyWordsInHTML($) {
   return tags;
 }
 
-// Helper function to get keywords from target tags
-function getKeywordsFromTargetTag(tag, $) {
-  const text = $(tag).text();
-  if (text) {
-    return text
-      .split(/\s+/)
-      .map((word) => word.trim())
-      .filter((word) => word.length >= 3);
-  }
-  return [];
-}
-
-// Function to find rankings of keywords
 function findRankings(keyWordList, $) {
   let rankings = [];
   let cleanedData = $.root().text();
@@ -137,7 +201,17 @@ function findRankings(keyWordList, $) {
   return rankings;
 }
 
-// Helper function to find rankings in meta tags
+function getKeywordsFromTargetTag(tag, $) {
+  const text = $(tag).text();
+  if (text) {
+    return text
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length >= 3);
+  }
+  return [];
+}
+
 function findRankingsInMetaTags(keyword, $) {
   let metaTags = $('meta[name="keywords"]').attr("content");
   if (metaTags) {
@@ -148,7 +222,6 @@ function findRankingsInMetaTags(keyword, $) {
   return 0;
 }
 
-// Function to build a description from the HTML content
 function buildDescription($, length) {
   let description = $('meta[name="description"]').attr("content");
   if (description && description.length > length) {
@@ -171,104 +244,27 @@ function buildDescription($, length) {
   return description;
 }
 
-// Helper function to escape special characters in regex
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// Main function to process URL by position
-async function processURLByPos(pos) {
-  const url = await retrieveRobotURLByPos(pos);
-  if (!url) {
-    console.warn(`No URL found at position ${pos}`);
-    requestNextPosFromParent(false);
-    return;
-  }
-
-  const currentURL = url;
-  console.log(`Bot processing URL at position ${pos}: ${currentURL}`);
-
-  let htmlContent = await fetchHtmlWithPlaywright(currentURL); // Fetch HTML using Playwright
-  if (htmlContent) {
-    const $ = cheerio.load(htmlContent);
-
-    // Find and insert new URLs into robotURL
-    let urlList = findURLsInHTML($, currentURL);
-    // Clean the urlList of duplicates to avoid inserting the same URL multiple times
-    urlList = [...new Set(urlList)];
-    urlList = urlList.filter((url) => url.startsWith("http")); // Filter out non-HTTP URLs (remove mailto, tel, etc.)
-    urlList = urlList.slice(0, 20); // Limit the number of URLs to insert (prevents one page from spawning too many new URLs)
-    for (const newURL of urlList) {
-      await insertIntoRobotURL(newURL);
-    }
-
-    // Find keywords and their rankings
-    let keyWordList = findKeyWordsInHTML($);
-    if (keyWordList.length > 0 && !halt) {
-      let rankings = findRankings(keyWordList, $);
-
-      // Insert keywords and rankings into urlKeyword
-      await insertIntoURLKeyword(currentURL, keyWordList, rankings);
-
-      // Build and insert description into urlDescription
-      let description = buildDescription($, descriptionLength);
-      await insertIntoURLDescription(currentURL, description);
-    } else {
-      console.log(`No keywords found for URL: ${currentURL}`);
-    }
-  } else {
-    console.log(`Failed to retrieve or parse HTML for URL: ${currentURL}`);
-  }
-  requestNextPosFromParent();
-}
-
-// --Additional Helper Functions-- //
-async function processPhraseSearch(phrases, pos) {
-  const url = await retrieveRobotURLByPos(pos);
-  if (!url) {
-    console.warn(`No URL found at position ${pos}`);
-    parentPort.postMessage({ request: "searchResult", result: null });
-    return;
-  }
-
-  let htmlContent = await fetchHtmlWithPlaywright(url);
-  if (!htmlContent) {
-    console.log(`Failed to retrieve or parse HTML for URL: ${url}`);
-    parentPort.postMessage({ request: "searchResult", result: null });
-    return;
-  }
-
-  const $ = cheerio.load(htmlContent);
-  const content = $.root().text();
-
-  // Perform phrase matching
-  const results = phrases.filter((phrase) => content.includes(phrase));
-  if (results.length > 0) {
-    parentPort.postMessage({
-      request: "searchResult",
-      result: { url, phrases: results },
-    });
-  } else {
-    parentPort.postMessage({ request: "searchResult", result: null });
-  }
-}
-
 // Message handling from parent process
 parentPort.on("message", async (message) => {
-  if (message.request === "phraseSearch" && message.phrases && message.pos) {
-    await processPhraseSearch(message.phrases, message.pos);
+  console.log("Worker received message:", message);
+
+  if (
+    message.request === "phraseSearch" &&
+    message.phrases &&
+    message.pos !== undefined
+  ) {
+    console.log(`Processing phraseSearch for position ${message.pos}`);
+    await processPhraseSearch(message.phrases, message.pos, message.or);
   } else if (message.pos !== undefined) {
     if (message.pos !== null) {
+      console.log(`Processing URL at position ${message.pos}`);
       await processURLByPos(message.pos);
     } else {
-      console.log("No more URLs to process. Bot is exiting.");
+      console.log("No more URLs to process. Worker exiting.");
       process.exit(0);
     }
   } else if (message.request === "halt") {
     halt = true;
-    console.log("Bot received halt request.");
+    console.log("Worker received halt request.");
   }
 });
-
-// Start processing by requesting the first position
-requestNextPosFromParent();
