@@ -15,6 +15,7 @@ const {
   insertIntoRobotURL,
   retrieveDescriptionURLCount,
   searchURLAndRankByKeywords,
+  searchPositionsByKeyword
 } = require("./mySQLHelpers.js"); // Import the mySQLHelpers module
 
 const PORT = 8082; // Specify the port for the server
@@ -137,7 +138,7 @@ function createBot() {
             if (buildingDatabase) {
               console.log("Database is being built, please wait.");
               res.writeHead(503, { "Content-Type": "text/plain" });
-              res.end("Database is being built, please wait.");
+              res.end("Initial database state is being built, please wait.");
               return;
             }
 
@@ -184,6 +185,53 @@ function createBot() {
               return;
             }
 
+            //split the keywords into two arrays, one for "phrases" and one for keywords.
+            //"phrases" should be searched for as a whole, in addition, they trigger a dynamic search based on urls that contain the phrase.
+            let phrases = [];
+            let words = [];
+            const phraseRegex = /^".*"$/;
+            keywords.forEach((keyword) => {
+              if (phraseRegex.test(keyword)) {
+              phrases.push(keyword.slice(1, -1)); // Remove the surrounding quotes
+              } else {
+              words.push(keyword);
+              }
+            });
+
+            // Phrase searches need to have at least one keyword associated with them.
+            if (phrases.length > 0 && words.length === 0) {
+              console.log("Phrases must be associated with at least one keyword.");
+              res.writeHead(400, { "Content-Type": "text/plain" });
+              res.end("Phrases must be associated with at least one keyword. Only the first keyword will be used.");
+              return;
+            }
+
+            // If there are phrases, we need to search for URLs that contain the phrases
+            if (phrases.length > 0) {
+              await searchPositionsByKeyword(words[0]).then((positions) => {
+                if (positions.length === 0) {
+                  console.log("No additional URLs found containing the keyword.");
+                }
+                
+              });
+            }
+
+
+
+            // Perform initial search of the database for URLs that contain the keywords
+            // The purpose of this search is to ensure that all potential URLs that contain the keywords are processed in the database before the search
+            // This is to ensure that the search results are as accurate as possible. 
+            await searchPositionsByKeywords(keywords, searchType === "or").then((positions) => {
+              if (positions.length === 0) {
+                console.log("No URLs found containing the keywords.");
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify([]));
+                return;
+              }
+            });
+
+
+            // Perform search of the database for URLs that contain the keywords and rank them
             await searchURLAndRankByKeywords(keywords, searchType === "or")
               .then((results) => {
                 console.log("Search results:");

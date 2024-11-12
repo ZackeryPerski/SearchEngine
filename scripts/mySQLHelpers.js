@@ -210,10 +210,35 @@ const retrieveDescriptionURLCount = async () => {
   }
 };
 
+// Search for positions that contain the given keyword in their URL
+// Returns an array of positions to be used for web crawling based off of the keyword that is contained in the URL
+// Called by searchEngine.js to determine which URLs to crawl
+const searchPositionsByKeyword = async (keyword) => {
+  await initializeConnection(); // Ensure connection is established
+
+  if (!keyword) {
+    // No keyword to search for
+    return [];
+  }
+
+  let query = "SELECT pos FROM robotURL WHERE url LIKE ?";
+  const modifiedKeyword = `%${keyword}%`;
+
+  try {
+    const [rows] = await connection.query(query, [modifiedKeyword]);
+    console.log("Positions containing the Keyword Specified: ", rows);
+    return rows.map((row) => row.pos);
+  } catch (err) {
+    console.error(`Error searching for keyword: `, err);
+    return [];
+  }
+};
+
 const searchURLAndRankByKeywords = async (keywords, OR = true) => {
   await initializeConnection(); // Ensure connection is established
 
   if (keywords.length === 0) {
+    // No keywords to search for
     return [];
   }
 
@@ -260,4 +285,5 @@ module.exports = {
   retrieveRobotURLCount,
   retrieveDescriptionURLCount,
   searchURLAndRankByKeywords,
+  searchPositionsByKeyword,
 };
